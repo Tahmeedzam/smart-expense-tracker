@@ -44,6 +44,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   double lastWeekSpend = 0;
   List<Expense> todayTransactions = [];
   Map<String, Category> catById = {};
+  List<String> overspendMessages = [];
 
   @override
   void initState() {
@@ -82,8 +83,43 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       yesterdaySpend = sum(yesterdayList);
       weekSpend = sum(weekList);
       lastWeekSpend = sum(lastWeekList);
+      overspendMessages = _buildOverspendMessages(todayList, yesterdayList);
       loading = false;
     });
+  }
+
+  Map<String, double> _sumByCategory(List<Expense> list) {
+    final result = <String, double>{};
+    for (final e in list) {
+      final cat = catById[e.categoryId];
+      final parentId = cat?.parentId ?? cat?.id;
+      final name = catById[parentId]?.name ?? cat?.name ?? 'Unknown';
+      result[name] = (result[name] ?? 0) + e.amount;
+    }
+    return result;
+  }
+
+  List<String> _buildOverspendMessages(
+    List<Expense> today,
+    List<Expense> yesterday,
+  ) {
+    final todayByCat = _sumByCategory(today);
+    final yesterdayByCat = _sumByCategory(yesterday);
+
+    final messages = <MapEntry<String, double>>[];
+    for (final entry in todayByCat.entries) {
+      final prevAmount = yesterdayByCat[entry.key] ?? 0;
+      final increase = entry.value - prevAmount;
+      if (increase >= 20) messages.add(MapEntry(entry.key, increase));
+    }
+
+    messages.sort((a, b) => b.value.compareTo(a.value));
+    return messages
+        .map(
+          (e) =>
+              "You spent ₹${e.value.toStringAsFixed(0)} more on ${e.key} than yesterday.",
+        )
+        .toList();
   }
 
   double? _pctChange(double current, double previous) {
@@ -141,7 +177,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                   ],
                 ),
-                if (isOverspending) ...[
+                if (isOverspending || overspendMessages.isNotEmpty) ...[
                   const SizedBox(height: 20),
                   _buildOverspendAlert(),
                 ],
@@ -319,32 +355,83 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildOverspendAlert() {
+    if (overspendMessages.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.alertBg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.alertBorder.withOpacity(0.4)),
+        ),
+        child: const Row(
+          children: [
+            Icon(
+              Icons.warning_amber_rounded,
+              color: AppColors.alertBorder,
+              size: 22,
+            ),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                "You're spending more than usual today.",
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: AppColors.textDark,
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
-      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppColors.alertBg,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.alertBorder.withOpacity(0.4)),
       ),
-      child: const Row(
-        children: [
-          Icon(
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          shape: const Border(),
+          tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+          leading: const Icon(
             Icons.warning_amber_rounded,
             color: AppColors.alertBorder,
             size: 22,
           ),
-          SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              "You're spending more than usual today.",
-              style: TextStyle(
-                fontSize: 12.5,
-                color: AppColors.textDark,
-                height: 1.3,
-              ),
+          title: Text(
+            overspendMessages.length == 1
+                ? overspendMessages.first
+                : 'Spending more than usual in ${overspendMessages.length} categories',
+            style: const TextStyle(
+              fontSize: 12.5,
+              color: AppColors.textDark,
+              height: 1.3,
+              fontWeight: FontWeight.w600,
             ),
           ),
-        ],
+          children: overspendMessages.length == 1
+              ? []
+              : overspendMessages
+                    .map(
+                      (m) => Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Text(
+                          m,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textDark,
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                    )
+                    .toList(),
+        ),
       ),
     );
   }
